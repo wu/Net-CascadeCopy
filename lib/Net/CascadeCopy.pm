@@ -1,8 +1,6 @@
 package Net::CascadeCopy;
 use Mouse;
 
-use Panoptes::Launcher;
-
 use Benchmark;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
@@ -122,8 +120,9 @@ use Class::Std::Utils;
 
         my $transfer_start = new Benchmark;
 
+      LOOP:
         while ( 1 ) {
-            $self->_transfer_loop( $transfer_start );
+            last LOOP unless $self->_transfer_loop( $transfer_start );
             sleep 1;
         }
     }
@@ -174,7 +173,8 @@ use Class::Std::Utils;
                 $savings = $self->_human_friendly_time( $savings );
                 $logger->info( "Approximate Time Saved: $savings" );
             }
-            exit;
+            $logger->warn( "Completed successfully" );
+            return;
         }
 
         return 1;
@@ -405,20 +405,20 @@ use Class::Std::Utils;
         return 1 if scalar keys %{ $data_of{ident $self}->{available}->{ $group } };
     }
 
-    sub get_available_servers {
+    sub _get_available_servers {
         my ( $self, $group ) = @_;
 
         return unless $data_of{ident $self}->{available};
 
         return unless $data_of{ident $self}->{available}->{ $group };
 
-        return sort keys %{ $data_of{ident $self}->{available}->{ $group } };
+        return ( sort keys %{ $data_of{ident $self}->{available}->{ $group } } );
     }
 
     sub _reserve_available_server {
         my ( $self, $group ) = @_;
         if ( $self->_has_remaining_server( $group ) ) {
-            my ( $server ) = $self->get_available_servers( $group );
+            my ( $server ) = $self->_get_available_servers( $group );
             $logger->debug( "Reserving ($group) $server" );
             $children_of{ident $self}->{ $server }++;
             return $server;
@@ -432,14 +432,14 @@ use Class::Std::Utils;
         return 1 if scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } };
     }
 
-    sub get_remaining_servers {
+    sub _get_remaining_servers {
         my ( $self, $group ) = @_;
 
         return unless $data_of{ident $self}->{remaining};
 
         return unless $data_of{ident $self}->{remaining}->{ $group };
 
-        return sort keys %{ $data_of{ident $self}->{remaining}->{ $group } };
+        return ( sort keys %{ $data_of{ident $self}->{remaining}->{ $group } } );
 
     }
 
