@@ -1,6 +1,7 @@
 package Net::CascadeCopy;
-use warnings;
-use strict;
+use Mouse;
+
+use Panoptes::Launcher;
 
 use Benchmark;
 use Log::Log4perl qw(:easy);
@@ -40,13 +41,15 @@ use Class::Std::Utils;
     # maximum processes per remote server
     my %max_forks_of;
 
+    # keep track of child processes
+    my %children_of;
+
     # Constructor takes path of file system root directory...
     sub new {
         my ($class, $arg_ref) = @_;
 
         # Bless a scalar to instantiate the new object...
         my $new_object = bless \do{my $anon_scalar}, $class;
-
 
         # Initialize the object's attributes...
         $ssh_of{ident $new_object}          = $arg_ref->{ssh}          || "ssh";
@@ -67,7 +70,9 @@ use Class::Std::Utils;
         my ( $self, $command, $args ) = @_;
 
         $command_of{ident $self} = $command;
-        $command_args_of{ident $self} = $args;
+        $command_args_of{ident $self} = $args || "";
+
+        return 1;
     }
 
     sub set_source_path {
@@ -101,58 +106,76 @@ use Class::Std::Utils;
     sub transfer {
         my ( $self ) = @_;
 
+        unless ( $command_of{ident $self} ) {
+            die "ERROR: no transfer command has been set, try set_command()";
+        }
+
+        unless ( $source_path_of{ident $self} ) {
+            die "ERROR: no source path has been set!";
+        }
+
+        unless ( $target_path_of{ident $self} ) {
+            die "ERROR: no target path has been set!";
+        }
+
         my $transfer_start = new Benchmark;
 
         while ( 1 ) {
-            $self->_check_for_completed_processes();
-
-            # keep track if there are any remaining servers in any groups
-            my ( $remaining_flag, $available_flag );
-
-            # iterate through groups with reamining servers
-            for my $group ( $self->_get_remaining_groups() ) {
-
-                # there are still available servers to sync
-                if ( $self->_has_available_server( $group )  ) {
-                    my $source = $self->_reserve_available_server( $group );
-
-                    my $busy;
-                    for my $fork ( 1 .. $max_forks_of{ident $self} ) {
-                        next if $source eq "localhost" && $fork > 1;
-                        if ( $self->_has_remaining_server( $group ) ) {
-
-                            my $target = $self->_reserve_remaining_server( $group );
-                            $self->_start_process( $group, $source, $target );
-                            $busy++;
-                        }
-                    }
-
-                    unless ( $busy ) {
-                        $logger->debug( "No remaining servers for available server $source" );
-                        $self->_unreserve_available_server( $source );
-                    }
-                }
-            }
-
-            if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
-                my $transfer_end = new Benchmark;
-                my $transfer_diff = timediff( $transfer_end, $transfer_start );
-                my $transfer_time = $self->_human_friendly_time( $transfer_diff->[0] );
-                $logger->warn( "Job completed in $transfer_time" );
-
-                my $total_time = $self->_human_friendly_time( $total_time_of{ident $self} );
-                $logger->info ( "Cumulative tansfer time of all jobs: $total_time" );
-
-                my $savings = $total_time_of{ident $self} - $transfer_diff->[0];
-                if ( $savings ) {
-                    $savings = $self->_human_friendly_time( $savings );
-                    $logger->info( "Approximate Time Saved: $savings" );
-                }
-                exit;
-            }
-
+            $self->_transfer_loop( $transfer_start );
             sleep 1;
         }
+    }
+
+    sub _transfer_loop {
+        my ( $self, $transfer_start ) = @_;
+
+        $self->_check_for_completed_processes();
+
+        # keep track if there are any remaining servers in any groups
+        my ( $remaining_flag, $available_flag );
+
+        # iterate through groups with reamining servers
+        for my $group ( $self->_get_remaining_groups() ) {
+
+            # there are still available servers to sync
+            if ( $self->_has_available_server( $group )  ) {
+                my $source = $self->_reserve_available_server( $group );
+
+                my $busy;
+                for my $fork ( 1 .. $max_forks_of{ident $self} ) {
+                    next if $source eq "localhost" && $fork > 1;
+                    if ( $self->_has_remaining_server( $group ) ) {
+
+                        my $target = $self->_reserve_remaining_server( $group );
+                        $self->_start_process( $group, $source, $target );
+                        $busy++;
+                    }
+                }
+
+                unless ( $busy ) {
+                    $logger->debug( "No remaining servers for available server $source" );
+                }
+            }
+        }
+
+        if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
+            my $transfer_end = new Benchmark;
+            my $transfer_diff = timediff( $transfer_end, $transfer_start );
+            my $transfer_time = $self->_human_friendly_time( $transfer_diff->[0] );
+            $logger->warn( "Job completed in $transfer_time" );
+
+            my $total_time = $self->_human_friendly_time( $total_time_of{ident $self} );
+            $logger->info ( "Cumulative tansfer time of all jobs: $total_time" );
+
+            my $savings = $total_time_of{ident $self} - $transfer_diff->[0];
+            if ( $savings ) {
+                $savings = $self->_human_friendly_time( $savings );
+                $logger->info( "Approximate Time Saved: $savings" );
+            }
+            exit;
+        }
+
+        return 1;
     }
 
     sub _human_friendly_time {
@@ -248,6 +271,8 @@ use Class::Std::Utils;
                                      $target_path_of{ident $self},
                                      "$target:$target_path_of{ident $self}";
             }
+
+            print "COMMAND: $command\n";
 
             my $output = $output_of{ident $self} || "";
             if ( $output eq "stdout" ) {
@@ -375,14 +400,32 @@ use Class::Std::Utils;
         my ( $self, $group ) = @_;
         return unless $data_of{ident $self}->{available};
         return unless $data_of{ident $self}->{available}->{ $group };
-        return 1 if $data_of{ident $self}->{available}->{ $group }->[0];
+        for my $server ( @{ $data_of{ident $self}->{available}->{ $group } } ) {
+            if ( ! $children_of{ident $self}->{ $server } ||
+                 $children_of{ident $self}->{ $server } < $max_forks_of{ident $self} ) {
+
+                return $server;
+            }
+        }
+
+        return;
+    }
+
+    sub get_available_servers {
+        my ( $self, $group ) = @_;
+
+        return unless $data_of{ident $self}->{available};
+
+        return unless $data_of{ident $self}->{available}->{ $group };
+
+        return @{ $data_of{ident $self}->{available}->{ $group } };
     }
 
     sub _reserve_available_server {
         my ( $self, $group ) = @_;
-        if ( $self->_has_remaining_server( $group ) ) {
-            my $server = shift @{ $data_of{ident $self}->{available}->{ $group } };
+        if ( my $server = $self->_has_available_server( $group ) ) {
             $logger->debug( "Reserving ($group) $server" );
+            $children_of{ident $self}->{ $server }++;
             return $server;
         }
     }
@@ -392,6 +435,17 @@ use Class::Std::Utils;
         return unless $data_of{ident $self}->{remaining};
         return unless $data_of{ident $self}->{remaining}->{ $group };
         return 1 if $data_of{ident $self}->{remaining}->{ $group }->[0];
+    }
+
+    sub get_remaining_servers {
+        my ( $self, $group ) = @_;
+
+        return unless $data_of{ident $self}->{remaining};
+
+        return unless $data_of{ident $self}->{remaining}->{ $group };
+
+        return @{ $data_of{ident $self}->{remaining}->{ $group } };
+
     }
 
     sub _reserve_remaining_server {
@@ -691,10 +745,3 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-l
-
-
-
-
-
