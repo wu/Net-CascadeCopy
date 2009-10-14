@@ -1,0 +1,13 @@
+Build.PL
+Changes
+lib/Net/CascadeCopy.pm
+Makefile.PL
+MANIFEST
+META.yml
+README
+scripts/ccp
+t/00.load.t
+t/01.new.t
+t/perlcritic.t
+t/pod-coverage.t
+t/pod.t
