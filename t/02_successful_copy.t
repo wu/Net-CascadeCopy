@@ -1,5 +1,5 @@
 #!perl
-use Test::More tests => 4;
+use Test::More tests => 25;
 
 use Log::Log4perl qw(:easy);
 
@@ -121,16 +121,44 @@ $ccp->_check_for_completed_processes();
            );
 
     # code_smell: localhost shouldn't really be in this list
-    use YAML;
-    print YAML::Dump $ccp->get_available_servers( 'first' );
-
     is_deeply( [ sort $ccp->get_available_servers( 'first' ) ],
-               [ 'host101', 'host102', 'host103' ],
+               [ 'host101', 'host102', 'host103', 'localhost' ],
                "Checking that hosts 101-103 are now available for transfer"
            );
 
     is_deeply( [ sort $ccp->get_available_servers( 'second' ) ],
-               [ 'host201', 'host202', 'host203' ],
+               [ 'host201', 'host202', 'host203', 'localhost' ],
                "Checking that hosts 201-203 are now available for transfer"
+           );
+}
+
+ok( $ccp->_transfer_loop(),
+    "Executing a single transfer loop"
+);
+
+sleep 1;
+
+$ccp->_check_for_completed_processes();
+
+{
+    is_deeply( [ sort $ccp->get_remaining_servers( 'first' ) ],
+               [ ],
+               "checking that no servers are remaining in first group"
+           );
+
+    is_deeply( [ sort $ccp->get_remaining_servers( 'second' ) ],
+               [ ],
+               "checking that no servers are remaining in second group"
+           );
+
+    # code_smell: localhost shouldn't really be in this list
+    is_deeply( [ sort $ccp->get_available_servers( 'first' ) ],
+               [ @hosts1, 'localhost' ],
+               "Checking that all hosts in first group are now available for transfer"
+           );
+
+    is_deeply( [ sort $ccp->get_available_servers( 'second' ) ],
+               [ @hosts2, 'localhost' ],
+               "Checking that all hosts in second group are now available for transfer"
            );
 }

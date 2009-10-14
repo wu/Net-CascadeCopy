@@ -93,10 +93,12 @@ use Class::Std::Utils;
                    );
 
         # initialize data structures
-        $data_of{ident $self}->{remaining}->{ $group } = $servers_a;
+        for my $server ( @{ $servers_a } ) {
+            $data_of{ident $self}->{remaining}->{ $group }->{$server} = 1;
+        }
 
         # first server to transfer from is the current server
-        push @{ $data_of{ident $self}->{available}->{ $group } }, 'localhost';
+        $data_of{ident $self}->{available}->{ $group }->{localhost} = 1;
 
         # initialize data structures
         $data_of{ident $self}->{completed}->{ $group } = [];
@@ -224,7 +226,7 @@ use Class::Std::Utils;
         # unstarted
         my $unstarted = 0;
         if ( $data_of{ident $self}->{remaining}->{ $group } ) {
-            $unstarted = scalar @{ $data_of{ident $self}->{remaining}->{ $group } };
+            $unstarted = scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } };
         }
 
         # failed
@@ -400,15 +402,7 @@ use Class::Std::Utils;
         my ( $self, $group ) = @_;
         return unless $data_of{ident $self}->{available};
         return unless $data_of{ident $self}->{available}->{ $group };
-        for my $server ( @{ $data_of{ident $self}->{available}->{ $group } } ) {
-            if ( ! $children_of{ident $self}->{ $server } ||
-                 $children_of{ident $self}->{ $server } < $max_forks_of{ident $self} ) {
-
-                return $server;
-            }
-        }
-
-        return;
+        return 1 if scalar keys %{ $data_of{ident $self}->{available}->{ $group } };
     }
 
     sub get_available_servers {
@@ -418,12 +412,13 @@ use Class::Std::Utils;
 
         return unless $data_of{ident $self}->{available}->{ $group };
 
-        return @{ $data_of{ident $self}->{available}->{ $group } };
+        return sort keys %{ $data_of{ident $self}->{available}->{ $group } };
     }
 
     sub _reserve_available_server {
         my ( $self, $group ) = @_;
-        if ( my $server = $self->_has_available_server( $group ) ) {
+        if ( $self->_has_remaining_server( $group ) ) {
+            my ( $server ) = $self->get_available_servers( $group );
             $logger->debug( "Reserving ($group) $server" );
             $children_of{ident $self}->{ $server }++;
             return $server;
@@ -434,7 +429,7 @@ use Class::Std::Utils;
         my ( $self, $group ) = @_;
         return unless $data_of{ident $self}->{remaining};
         return unless $data_of{ident $self}->{remaining}->{ $group };
-        return 1 if $data_of{ident $self}->{remaining}->{ $group }->[0];
+        return 1 if scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } };
     }
 
     sub get_remaining_servers {
@@ -444,7 +439,7 @@ use Class::Std::Utils;
 
         return unless $data_of{ident $self}->{remaining}->{ $group };
 
-        return @{ $data_of{ident $self}->{remaining}->{ $group } };
+        return sort keys %{ $data_of{ident $self}->{remaining}->{ $group } };
 
     }
 
@@ -452,11 +447,12 @@ use Class::Std::Utils;
         my ( $self, $group ) = @_;
 
         if ( $self->_has_remaining_server( $group ) ) {
-            my $server = shift @{ $data_of{ident $self}->{remaining}->{ $group } };
+            my $server = ( sort keys %{ $data_of{ident $self}->{remaining}->{ $group } } )[0];
+            delete $data_of{ident $self}->{remaining}->{ $group }->{$server};
             $logger->debug( "Reserving ($group) $server" );
 
             # delete remaining data structure as groups are completed
-            unless ( scalar @{ $data_of{ident $self}->{remaining}->{ $group } } ) {
+            unless ( scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } } ) {
                 $logger->debug( "Group empty: $group" );
                 delete $data_of{ident $self}->{remaining}->{ $group };
                 unless ( scalar ( keys %{ $data_of{ident $self}->{remaining} } ) ) {
@@ -471,7 +467,7 @@ use Class::Std::Utils;
     sub _get_remaining_groups {
         my ( $self ) = @_;
         return unless $data_of{ident $self}->{remaining};
-        my @keys = keys %{ $data_of{ident $self}->{remaining} };
+        my @keys = sort keys %{ $data_of{ident $self}->{remaining} };
         return unless scalar @keys;
         return @keys;
     }
@@ -483,14 +479,14 @@ use Class::Std::Utils;
         return if $server eq "localhost";
 
         $logger->debug( "Server available: ($group) $server" );
-        unshift @{ $data_of{ident $self}->{available}->{ $group } }, $server;
+        $data_of{ident $self}->{available}->{ $group }->{$server} = 1;
     }
 
     sub _mark_remaining {
         my ( $self, $group, $server ) = @_;
 
         $logger->debug( "Server remaining: ($group) $server" );
-        push @{ $data_of{ident $self}->{remaining}->{ $group } }, $server;
+        $data_of{ident $self}->{remaining}->{ $group }->{$server} = 1;
     }
 
     sub _mark_completed {
