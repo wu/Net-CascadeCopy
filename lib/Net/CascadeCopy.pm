@@ -139,13 +139,13 @@ use Class::Std::Utils;
         for my $group ( $self->_get_remaining_groups() ) {
 
             # there are still available servers to sync
-            if ( $self->_has_available_server( $group )  ) {
+            if ( $self->_get_available_servers( $group )  ) {
                 my $source = $self->_reserve_available_server( $group );
 
                 my $busy;
                 for my $fork ( 1 .. $max_forks_of{ident $self} ) {
                     next if $source eq "localhost" && $fork > 1;
-                    if ( $self->_has_remaining_server( $group ) ) {
+                    if ( $self->_get_remaining_servers( $group ) ) {
 
                         my $target = $self->_reserve_remaining_server( $group );
                         $self->_start_process( $group, $source, $target );
@@ -397,39 +397,23 @@ use Class::Std::Utils;
         $self->_print_status( $group );
     }
 
-
-    sub _has_available_server {
-        my ( $self, $group ) = @_;
-        return unless $data_of{ident $self}->{available};
-        return unless $data_of{ident $self}->{available}->{ $group };
-        return 1 if scalar keys %{ $data_of{ident $self}->{available}->{ $group } };
-    }
-
     sub _get_available_servers {
         my ( $self, $group ) = @_;
-
         return unless $data_of{ident $self}->{available};
-
         return unless $data_of{ident $self}->{available}->{ $group };
 
-        return ( sort keys %{ $data_of{ident $self}->{available}->{ $group } } );
+        my @hosts = sort keys %{ $data_of{ident $self}->{available}->{ $group } };
+        return @hosts;
     }
 
     sub _reserve_available_server {
         my ( $self, $group ) = @_;
-        if ( $self->_has_remaining_server( $group ) ) {
+        if ( $self->_get_remaining_servers( $group ) ) {
             my ( $server ) = $self->_get_available_servers( $group );
             $logger->debug( "Reserving ($group) $server" );
             $children_of{ident $self}->{ $server }++;
             return $server;
         }
-    }
-
-    sub _has_remaining_server {
-        my ( $self, $group ) = @_;
-        return unless $data_of{ident $self}->{remaining};
-        return unless $data_of{ident $self}->{remaining}->{ $group };
-        return 1 if scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } };
     }
 
     sub _get_remaining_servers {
@@ -439,14 +423,14 @@ use Class::Std::Utils;
 
         return unless $data_of{ident $self}->{remaining}->{ $group };
 
-        return ( sort keys %{ $data_of{ident $self}->{remaining}->{ $group } } );
-
+        my @hosts = sort keys %{ $data_of{ident $self}->{remaining}->{ $group } };
+        return @hosts;
     }
 
     sub _reserve_remaining_server {
         my ( $self, $group ) = @_;
 
-        if ( $self->_has_remaining_server( $group ) ) {
+        if ( $self->_get_remaining_servers( $group ) ) {
             my $server = ( sort keys %{ $data_of{ident $self}->{remaining}->{ $group } } )[0];
             delete $data_of{ident $self}->{remaining}->{ $group }->{$server};
             $logger->debug( "Reserving ($group) $server" );
