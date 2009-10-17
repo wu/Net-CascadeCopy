@@ -8,3 +8,4 @@ pm_to_blib*
 .lwpcookies
 Panoptes-Config-*
 cover_db
+.build

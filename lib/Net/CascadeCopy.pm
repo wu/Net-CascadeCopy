@@ -5,7 +5,7 @@ use Benchmark;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.2.0');
+use version; our $VERSION = qv('0.2.1');
 
 my $logger = get_logger( 'default' );
 
@@ -499,8 +499,7 @@ __END__
 
 =head1 NAME
 
-Net::CascadeCopy - Rapidly propagate (rsync/scp/...) files to many
-servers in multiple locations.
+Net::CascadeCopy - Rapidly propagate (rsync/scp/...) files to many servers in multiple locations.
 
 
 =head1 SYNOPSIS
