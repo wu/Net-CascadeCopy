@@ -1,93 +1,10 @@
-------------------------------------------------------------------------
-r21 | root | 2007-05-15 18:03:19 -0500 (Tue, 15 May 2007) | 2 lines
+- 0.2.0
 
-tweak Test::Perl::Critic for CPAN modules per recommendations in docs
-removed .cvsignore file
-------------------------------------------------------------------------
-r20 | root | 2007-05-15 17:56:45 -0500 (Tue, 15 May 2007) | 1 line
-
-updated svn:ignore from .cvsignore and remove the latter
-------------------------------------------------------------------------
-r19 | root | 2007-05-15 17:53:06 -0500 (Tue, 15 May 2007) | 1 line
-
-bump version to 0.1.0, upped to beta
-------------------------------------------------------------------------
-r18 | root | 2007-05-15 00:28:14 -0500 (Tue, 15 May 2007) | 3 lines
-
-track number of errors (non-zero exits) and failures (gave up)
-refining output
-
-------------------------------------------------------------------------
-r17 | root | 2007-05-14 21:36:23 -0500 (Mon, 14 May 2007) | 2 lines
-
-keep track of total transfer time for each job and calculate time saved
-
-------------------------------------------------------------------------
-r16 | root | 2007-05-14 21:11:48 -0500 (Mon, 14 May 2007) | 1 line
-
-better progress indication, time each transfer and total transfer time
-------------------------------------------------------------------------
-r15 | root | 2007-05-14 19:26:02 -0500 (Mon, 14 May 2007) | 1 line
-
-tweak info when starting and stopping, show output option in pod docs
-------------------------------------------------------------------------
-r14 | root | 2007-05-13 01:08:58 -0500 (Sun, 13 May 2007) | 1 line
-
-doc tweaks, fix/tweak/document stdout handling
-------------------------------------------------------------------------
-r13 | root | 2007-05-08 11:22:36 -0500 (Tue, 08 May 2007) | 1 line
-
-bump version
-------------------------------------------------------------------------
-r12 | root | 2007-05-08 11:22:18 -0500 (Tue, 08 May 2007) | 1 line
-
-doc updates
-------------------------------------------------------------------------
-r11 | root | 2007-05-07 21:39:27 -0500 (Mon, 07 May 2007) | 1 line
-
-documentation tweaks
-------------------------------------------------------------------------
-r10 | root | 2007-05-07 17:41:16 -0500 (Mon, 07 May 2007) | 1 line
-
-cycle through the list better
-------------------------------------------------------------------------
-r9 | root | 2007-05-07 17:35:57 -0500 (Mon, 07 May 2007) | 1 line
-
-lots of doc tweaks and bumped rev
-------------------------------------------------------------------------
-r8 | root | 2007-05-07 13:39:48 -0500 (Mon, 07 May 2007) | 1 line
-
-correct some errors in docs
-------------------------------------------------------------------------
-r7 | root | 2007-05-07 02:26:52 -0500 (Mon, 07 May 2007) | 1 line
-
-bump revision number
-------------------------------------------------------------------------
-r6 | root | 2007-05-07 02:26:18 -0500 (Mon, 07 May 2007) | 1 line
-
-first draft of docs
-------------------------------------------------------------------------
-r5 | root | 2007-05-07 01:01:14 -0500 (Mon, 07 May 2007) | 1 line
-
-adding script and prepreq to Makefile.PL
-------------------------------------------------------------------------
-r4 | root | 2007-05-07 00:57:20 -0500 (Mon, 07 May 2007) | 2 lines
-
-option for source and target paths
-
-------------------------------------------------------------------------
-r3 | root | 2007-05-06 23:55:16 -0500 (Sun, 06 May 2007) | 1 line
-
-refactored into library and script
-------------------------------------------------------------------------
-r2 | root | 2007-05-06 23:00:41 -0500 (Sun, 06 May 2007) | 3 lines
-
-importing trunk - only script exists at this point
-
-
-------------------------------------------------------------------------
-r1 | root | 2007-05-06 22:58:56 -0500 (Sun, 06 May 2007) | 3 lines
-
-Creating trunk
-
+  - added some unit test cases for successful transfers
+  - modified some methods to make automated testing easier
+  - replaced _has_*_server() methods with _get_*_servers()
+  - resolved a bug with re-scheduling an available server too many times
+  - better handling of -help and usage info
+  - moved source to github and released using Dist::Zilla
+  - still some really ugly code in this release, more updates coming
 

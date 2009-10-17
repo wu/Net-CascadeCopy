@@ -6,6 +6,6 @@ _build*
 pm_to_blib*
 *.tar.gz
 .lwpcookies
-Panoptes-Config-*
+Net-CascadeCopy-*
 cover_db
 .build
