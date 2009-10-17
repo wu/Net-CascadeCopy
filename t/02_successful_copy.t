@@ -91,14 +91,13 @@ $ccp->_check_for_completed_processes();
                "Checking that one server is no longer in the second group"
            );
 
-    # code_smell: localhost shouldn't really be in this list
     is_deeply( [ $ccp->_get_available_servers( 'first' ) ],
-               [ $hosts1[0], 'localhost' ],
+               [ $hosts1[0] ],
                "Checking that one servers is now available in first dc"
            );
 
     is_deeply( [ $ccp->_get_available_servers( 'second' ) ],
-               [ $hosts2[0], 'localhost' ],
+               [ $hosts2[0] ],
                "Checking that one servers is now available in second dc"
            );
 }
@@ -123,14 +122,13 @@ $ccp->_check_for_completed_processes();
                "Checking that host 204+205 are remaining"
            );
 
-    # code_smell: localhost shouldn't really be in this list
     is_deeply( [ sort $ccp->_get_available_servers( 'first' ) ],
-               [ 'host101', 'host102', 'host103', 'localhost' ],
+               [ 'host101', 'host102', 'host103' ],
                "Checking that hosts 101-103 are now available for transfer"
            );
 
     is_deeply( [ sort $ccp->_get_available_servers( 'second' ) ],
-               [ 'host201', 'host202', 'host203', 'localhost' ],
+               [ 'host201', 'host202', 'host203' ],
                "Checking that hosts 201-203 are now available for transfer"
            );
 }
@@ -154,14 +152,13 @@ $ccp->_check_for_completed_processes();
                "checking that no servers are remaining in second group"
            );
 
-    # code_smell: localhost shouldn't really be in this list
     is_deeply( [ sort $ccp->_get_available_servers( 'first' ) ],
-               [ @hosts1, 'localhost' ],
+               [ @hosts1 ],
                "Checking that all hosts in first group are now available for transfer"
            );
 
     is_deeply( [ sort $ccp->_get_available_servers( 'second' ) ],
-               [ @hosts2, 'localhost' ],
+               [ @hosts2 ],
                "Checking that all hosts in second group are now available for transfer"
            );
 }

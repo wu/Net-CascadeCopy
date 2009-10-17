@@ -1,5 +1,5 @@
 #!perl
-use Test::More tests => 7;
+use Test::More tests => 10;
 use strict;
 
 # use Log::Log4perl qw(:easy);
@@ -28,7 +28,7 @@ $ccp->set_command( "echo" );
 $ccp->set_source_path( "/foo" );
 $ccp->set_target_path( "/foo" );
 
-ok( $ccp->add_group( "only", [ 'host1' ] ),
+ok( $ccp->add_group( "only", [ 'xhost1', 'xhost2' ] ),
     "Adding a single host to a single group"
 );
 is_deeply( [ $ccp->_get_available_servers( 'only' ) ],
@@ -37,8 +37,8 @@ is_deeply( [ $ccp->_get_available_servers( 'only' ) ],
        );
 
 is_deeply( [ $ccp->_get_remaining_servers( 'only' ) ],
-           [ 'host1' ],
-           "Checking that host1 is remaining"
+           [ 'xhost1', 'xhost2' ],
+           "Checking that xhost1 and xhost2 are remaining"
        );
 
 ok( $ccp->_transfer_loop( $transfer_start ),
@@ -50,13 +50,31 @@ sleep 1;
 $ccp->_check_for_completed_processes();
 
 is_deeply( [ $ccp->_get_remaining_servers( 'only' ) ],
-           [],
-           "Checking that one servers is no longer in the only group"
+           [ 'xhost2' ],
+           "Checking that only xhost2 is left"
        );
 
 is_deeply( [ $ccp->_get_available_servers( 'only' ) ],
-           [ 'host1' ],
-           "Checking that one servers is now available in only group"
+           [ 'xhost1' ],
+           "Checking that xhost1 is now available",
+       );
+
+ok( $ccp->_transfer_loop( $transfer_start ),
+    "Executing a single transfer loop"
+);
+
+sleep 1;
+
+$ccp->_check_for_completed_processes();
+
+is_deeply( [ $ccp->_get_remaining_servers( 'only' ) ],
+           [ ],
+           "Checking that no hosts are remaining"
+       );
+
+is_deeply( [ $ccp->_get_available_servers( 'only' ) ],
+           [ 'xhost1', 'xhost2' ],
+           "Checking that all hosts are now available",
        );
 
 ok( ! $ccp->_transfer_loop( $transfer_start ),

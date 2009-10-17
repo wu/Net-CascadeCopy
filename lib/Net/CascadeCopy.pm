@@ -1,11 +1,13 @@
 package Net::CascadeCopy;
-use Mouse;
+use strict;
+use warnings;
+
+our $VERSION = '0.2.3';
 
 use Benchmark;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.2.1');
 
 my $logger = get_logger( 'default' );
 
@@ -459,8 +461,17 @@ use Class::Std::Utils;
     sub _mark_available {
         my ( $self, $group, $server ) = @_;
 
-        # don't reschedule localhost for future syncs
-        return if $server eq "localhost";
+        # only the initial transfer to each dc comes from localhost.  iff
+        # first transfer (from localhost) succeeded, then don't reschedule
+        # for future syncs
+        if ( $server eq "localhost" ) {
+
+            if ( $data_of{ident $self}->{completed}->{ $group } ) {
+
+                delete $data_of{ident $self}->{available}->{ $group }->{$server};
+                return;
+            }
+        }
 
         $logger->debug( "Server available: ($group) $server" );
         $data_of{ident $self}->{available}->{ $group }->{$server} = 1;

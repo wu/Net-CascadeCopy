@@ -54,9 +54,8 @@ is_deeply( [ $ccp->_get_remaining_servers( 'only' ) ],
            "Checking that only host2 is left"
        );
 
-# code_smell: localhost shouldn't really be in this list
 is_deeply( [ $ccp->_get_available_servers( 'only' ) ],
-           [ 'host1', 'localhost' ],
+           [ 'host1' ],
            "Checking that host1 is now available",
        );
 
@@ -73,9 +72,8 @@ is_deeply( [ $ccp->_get_remaining_servers( 'only' ) ],
            "Checking that no hosts are remaining"
        );
 
-# code_smell: localhost shouldn't really be in this list
 is_deeply( [ $ccp->_get_available_servers( 'only' ) ],
-           [ 'host1', 'host2', 'localhost' ],
+           [ 'host1', 'host2' ],
            "Checking that all hosts are now available",
        );
 
