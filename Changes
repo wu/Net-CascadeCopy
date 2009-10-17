@@ -1,3 +1,10 @@
+- 0.2.3
+
+  - resolve a issues with transfers from 'localhost'
+    - prevent failed transfers from 'localhost' from going into a loop
+    - prevent issues with hosts sorted after localhost, introduced in 0.2.0
+  - tweaks for using Dist::Zilla
+
 - 0.2.0
 
   - added some unit test cases for successful transfers
