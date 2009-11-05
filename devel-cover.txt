@@ -1,0 +1,32 @@
+Deleting database /Users/wu/projects/Net-CascadeCopy/Net-CascadeCopy-0.2.4/cover_db
+cp lib/Net/CascadeCopy.pm blib/lib/Net/CascadeCopy.pm
+cp bin/ccp blib/script/ccp
+/usr/local/bin/perl -MExtUtils::MY -e 'MY->fixin(shift)' -- blib/script/ccp
+PERL_DL_NONLAZY=1 /usr/local/bin/perl "-MExtUtils::Command::MM" "-e" "test_harness(0, 'blib/lib', 'blib/arch')" t/*.t
+t/00.load.t ............................ ok
+t/01.new.t ............................. ok
+t/02_successful_copy.t ................. ok
+t/03_single_transfer.t ................. ok
+t/04_two_transfers.t ................... ok
+t/05_two_transfer_hostname_sort_bug.t .. ok
+t/critic.t ............................. skipped: Author tests not required for installation
+t/kwalitee.t ........................... skipped: Author tests not required for installation
+t/meta.t ............................... skipped: Author tests not required for installation
+t/release-pod-coverage.t ............... skipped: these tests are for release candidate testing
+t/release-pod-syntax.t ................. skipped: these tests are for release candidate testing
+All tests successful.
+Files=11, Tests=55, 28 wallclock secs ( 0.06 usr  0.04 sys + 15.19 cusr  1.12 csys = 16.41 CPU)
+Result: PASS
+Reading database from /Users/wu/projects/Net-CascadeCopy/Net-CascadeCopy-0.2.4/cover_db
+
+
+---------------------------- ------ ------ ------ ------ ------ ------ ------
+File                           stmt   bran   cond    sub    pod   time  total
+---------------------------- ------ ------ ------ ------ ------ ------ ------
+blib/lib/Net/CascadeCopy.pm    78.0   58.9   65.4   83.3  100.0  100.0   73.6
+Total                          78.0   58.9   65.4   83.3  100.0  100.0   73.6
+---------------------------- ------ ------ ------ ------ ------ ------ ------
+
+
+Writing HTML output to /Users/wu/projects/Net-CascadeCopy/Net-CascadeCopy-0.2.4/cover_db/coverage.html ...
+done.
