@@ -2,7 +2,7 @@ package Net::CascadeCopy;
 use strict;
 use warnings;
 
-our $VERSION = '0.2.3';
+our $VERSION = '0.2.4';
 
 use Benchmark;
 use Log::Log4perl qw(:easy);
@@ -689,11 +689,29 @@ hangs forever will prevent CascadeCopy from ever completing.
 
 Please report problems to VVu@geekfarm.org.  Patches are welcome.
 
+
+=head1 SUPPORT AND DOCUMENTATION
+
+    RT, CPAN's request tracker
+        http://rt.cpan.org/NoAuth/Bugs.html?Dist=Net-CascadeCopy
+
+    AnnoCPAN, Annotated CPAN documentation
+        http://annocpan.org/dist/Net-CascadeCopy
+
+    Search CPAN
+        http://search.cpan.org/dist/Net-CascadeCopy
+
+
 =head1 SEE ALSO
 
 ccp - command line script distributed with this module
 
 http://www.geekfarm.org/wu/muse/CascadeCopy.html
+
+=head1 CONTRIBUTORS
+
+0.2.3 incorporates a fix from twelch for an endless loop that occurred
+      when the initial transfer failed.
 
 
 =head1 AUTHOR
