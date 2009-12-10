@@ -2,7 +2,7 @@ package Net::CascadeCopy;
 use strict;
 use warnings;
 
-our $VERSION = '0.2.4';
+our $VERSION;
 
 use Benchmark;
 use Log::Log4perl qw(:easy);
@@ -43,6 +43,9 @@ use Class::Std::Utils;
 
     # keep track of child processes
     my %children_of;
+
+    # for testing purposes
+    my %transfer_map_of;
 
     # Constructor takes path of file system root directory...
     sub new {
@@ -137,30 +140,7 @@ use Class::Std::Utils;
         # keep track if there are any remaining servers in any groups
         my ( $remaining_flag, $available_flag );
 
-        # iterate through groups with reamining servers
-        for my $group ( $self->_get_remaining_groups() ) {
-
-            # there are still available servers to sync
-            if ( $self->_get_available_servers( $group )  ) {
-                my $source = $self->_reserve_available_server( $group );
-
-                my $busy;
-                for my $fork ( 1 .. $max_forks_of{ident $self} ) {
-                    next if $source eq "localhost" && $fork > 1;
-                    if ( $self->_get_remaining_servers( $group ) ) {
-
-                        my $target = $self->_reserve_remaining_server( $group );
-                        $self->_start_process( $group, $source, $target );
-                        $busy++;
-                    }
-                }
-
-                unless ( $busy ) {
-                    $logger->debug( "No remaining servers for available server $source" );
-                }
-            }
-        }
-
+        # handle completed processes
         if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
             my $transfer_end = new Benchmark;
             my $transfer_diff = timediff( $transfer_end, $transfer_start );
@@ -177,6 +157,22 @@ use Class::Std::Utils;
             }
             $logger->warn( "Completed successfully" );
             return;
+        }
+
+        # start new transfers to remaining servers
+        for ( 0, 1 ) {
+            # code_smell: start 2 transfers each round to keep the
+            # test cases from breaking.  need to refactor test cases!
+            for my $group ( $self->_get_remaining_groups() ) {
+                # group contains servers that still need to be tranferred
+
+                if ( $self->_get_available_servers( $group )  ) {
+                    # reserve a server to start a new transfer from
+                    my $source = $self->_reserve_available_server( $group );
+                    my $target = $self->_reserve_remaining_server( $group );
+                    $self->_start_process( $group, $source, $target );
+                }
+            }
         }
 
         return 1;
@@ -255,11 +251,12 @@ use Class::Std::Utils;
     sub _start_process {
         my ( $self, $group, $source, $target ) = @_;
 
+        $transfer_map_of{ident $self}->{$source}->{$target}++;
+
         my $f=fork;
         if (defined ($f) and $f==0) {
 
             my $command;
-            #my $command = "scp /tmp/foo $target:/tmp/foo";
             if ( $source eq "localhost" ) {
                 $command = join " ", $command_of{ident $self},
                                      $command_args_of{ident $self},
@@ -404,18 +401,30 @@ use Class::Std::Utils;
         return unless $data_of{ident $self}->{available};
         return unless $data_of{ident $self}->{available}->{ $group };
 
-        my @hosts = sort keys %{ $data_of{ident $self}->{available}->{ $group } };
-        return @hosts;
+        my @available;
+        for my $host ( sort keys %{ $data_of{ident $self}->{available}->{ $group } } ) {
+            if ( $children_of{ident $self}->{$host} ) {
+                next if $children_of{ident $self}->{$host} >= $max_forks_of{ident $self};
+            }
+            push @available, $host;
+        }
+
+        return @available;
     }
 
     sub _reserve_available_server {
         my ( $self, $group ) = @_;
-        if ( $self->_get_remaining_servers( $group ) ) {
-            my ( $server ) = $self->_get_available_servers( $group );
-            $logger->debug( "Reserving ($group) $server" );
-            $children_of{ident $self}->{ $server }++;
-            return $server;
+
+        my ( $server ) = $self->_get_available_servers( $group );
+        $logger->debug( "Reserving ($group) $server" );
+
+        # only one transfer from localhost to each dc
+        if ( $server eq "localhost" ) {
+            delete $data_of{ident $self}->{available}->{$group}->{localhost};
         }
+
+        $children_of{ident $self}->{ $server }++;
+        return $server;
     }
 
     sub _get_remaining_servers {
@@ -475,6 +484,11 @@ use Class::Std::Utils;
 
         $logger->debug( "Server available: ($group) $server" );
         $data_of{ident $self}->{available}->{ $group }->{$server} = 1;
+
+        # reduce count of number of active processes on this server
+        if ( $children_of{ident $self}->{$server} ) {
+            $children_of{ident $self}->{$server}--;
+        }
     }
 
     sub _mark_remaining {
@@ -501,6 +515,13 @@ use Class::Std::Utils;
         return $failures;
     }
 
+    # tracing all the attempted transfers
+    sub get_transfer_map {
+        my ( $self ) = @_;
+
+        return $transfer_map_of{ident $self};
+    }
+    
 }
 
 
@@ -648,6 +669,11 @@ be copied.
 =item $self->transfer( )
 
 Transfer all files.  Will not return until all files are transferred.
+
+=item $self->get_transfer_map( )
+
+Returns a data structure describing the transfers that were peformed,
+i.e. which hosts were used as the sources for which other hosts.
 
 =back
 

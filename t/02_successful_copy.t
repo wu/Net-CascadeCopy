@@ -1,23 +1,11 @@
 #!perl
-use Test::More tests => 26;
+use Test::More tests => 29;
+use Test::Differences;
 use strict;
 
-# use Log::Log4perl qw(:easy);
-
-# my $conf =<<END_LOG4PERLCONF;
-# # Screen output at INFO level
-# log4perl.rootLogger=DEBUG, SCREEN
-
-# # Info to screen and logfile
-# log4perl.appender.SCREEN.Threshold=INFO
-# log4perl.appender.SCREEN=Log::Log4perl::Appender::ScreenColoredLevels
-# log4perl.appender.SCREEN.layout=PatternLayout
-# log4perl.appender.SCREEN.layout.ConversionPattern=%d %m%n
-# log4perl.appender.SCREEN.stderr=0
-
-# END_LOG4PERLCONF
-
-# Log::Log4perl::init( \$conf );
+#use Log::Log4perl qw(:easy);
+#Log::Log4perl->easy_init($DEBUG);
+#my $logger = get_logger( 'default' );
 
 use Net::CascadeCopy;
 
@@ -51,22 +39,22 @@ ok( $ccp->add_group( "second", [ @hosts2 ] ),
 );
 
 {
-    is_deeply( [ $ccp->_get_available_servers( 'first' ) ],
+    eq_or_diff( [ $ccp->_get_available_servers( 'first' ) ],
                [ 'localhost' ],
                "Checking that only localhost available in first group"
            );
 
-    is_deeply( [ $ccp->_get_available_servers( 'second' ) ],
+    eq_or_diff( [ $ccp->_get_available_servers( 'second' ) ],
                [ 'localhost' ],
                "Checking that only localhost available in second group"
            );
 
-    is_deeply( [ $ccp->_get_remaining_servers( 'first' ) ],
+    eq_or_diff( [ $ccp->_get_remaining_servers( 'first' ) ],
                \@hosts1,
                "Checking that all servers in first group are in the 'remaining' group"
            );
 
-    is_deeply( [ $ccp->_get_remaining_servers( 'second' ) ],
+    eq_or_diff( [ $ccp->_get_remaining_servers( 'second' ) ],
                \@hosts2,
                "Checking that all servers in second group are in the 'remaining' group"
            );
@@ -76,27 +64,35 @@ ok( $ccp->_transfer_loop( $transfer_start ),
     "Executing a single transfer loop"
 );
 
+eq_or_diff( $ccp->get_transfer_map(),
+           { localhost => { host101 => 1,
+                            host201 => 1,
+                        },
+         },
+           "Checking that localhost transferred to host101 and host201"
+       );
+
 sleep 1;
 
 $ccp->_check_for_completed_processes();
 
 {
-    is_deeply( [ $ccp->_get_remaining_servers( 'first' ) ],
+    eq_or_diff( [ $ccp->_get_remaining_servers( 'first' ) ],
                [ @hosts1[ 1 .. $#hosts1 ] ],
                "Checking that one servers is no longer in the first group"
            );
 
-    is_deeply( [ $ccp->_get_remaining_servers( 'second' ) ],
+    eq_or_diff( [ $ccp->_get_remaining_servers( 'second' ) ],
                [ @hosts2[ 1 .. $#hosts2 ] ],
                "Checking that one server is no longer in the second group"
            );
 
-    is_deeply( [ $ccp->_get_available_servers( 'first' ) ],
+    eq_or_diff( [ $ccp->_get_available_servers( 'first' ) ],
                [ $hosts1[0] ],
                "Checking that one servers is now available in first dc"
            );
 
-    is_deeply( [ $ccp->_get_available_servers( 'second' ) ],
+    eq_or_diff( [ $ccp->_get_available_servers( 'second' ) ],
                [ $hosts2[0] ],
                "Checking that one servers is now available in second dc"
            );
@@ -107,27 +103,41 @@ ok( $ccp->_transfer_loop( $transfer_start ),
     "Executing a single transfer loop"
 );
 
+eq_or_diff( $ccp->get_transfer_map(),
+           { localhost => { host101 => 1,
+                            host201 => 1,
+                        },
+             host101   => { host102 => 1,
+                            host103 => 1,
+                        },
+             host201   => { host202 => 1,
+                            host203 => 1,
+                        },
+         },
+           "Checking that localhost transferred to host101 and host201"
+       );
+
 sleep 1;
 
 $ccp->_check_for_completed_processes();
 
 {
-    is_deeply( [ sort $ccp->_get_remaining_servers( 'first' ) ],
+    eq_or_diff( [ sort $ccp->_get_remaining_servers( 'first' ) ],
                [ 'host104', 'host105' ],
                "Checking that host 104+105 are remaining"
            );
 
-    is_deeply( [ sort $ccp->_get_remaining_servers( 'second' ) ],
+    eq_or_diff( [ sort $ccp->_get_remaining_servers( 'second' ) ],
                [ 'host204', 'host205' ],
                "Checking that host 204+205 are remaining"
            );
 
-    is_deeply( [ sort $ccp->_get_available_servers( 'first' ) ],
+    eq_or_diff( [ sort $ccp->_get_available_servers( 'first' ) ],
                [ 'host101', 'host102', 'host103' ],
                "Checking that hosts 101-103 are now available for transfer"
            );
 
-    is_deeply( [ sort $ccp->_get_available_servers( 'second' ) ],
+    eq_or_diff( [ sort $ccp->_get_available_servers( 'second' ) ],
                [ 'host201', 'host202', 'host203' ],
                "Checking that hosts 201-203 are now available for transfer"
            );
@@ -137,27 +147,45 @@ ok( $ccp->_transfer_loop( $transfer_start ),
     "Executing a single transfer loop"
 );
 
+eq_or_diff( $ccp->get_transfer_map(),
+           { localhost => { host101 => 1,
+                            host201 => 1,
+                        },
+             host101   => { host102 => 1,
+                            host103 => 1,
+                            host104 => 1,
+                            host105 => 1,
+                        },
+             host201   => { host202 => 1,
+                            host203 => 1,
+                            host204 => 1,
+                            host205 => 1,
+                        },
+         },
+           "Checking that localhost transferred to host101 and host201"
+       );
+
 sleep 1;
 
 $ccp->_check_for_completed_processes();
 
 {
-    is_deeply( [ sort $ccp->_get_remaining_servers( 'first' ) ],
+    eq_or_diff( [ sort $ccp->_get_remaining_servers( 'first' ) ],
                [ ],
                "checking that no servers are remaining in first group"
            );
 
-    is_deeply( [ sort $ccp->_get_remaining_servers( 'second' ) ],
+    eq_or_diff( [ sort $ccp->_get_remaining_servers( 'second' ) ],
                [ ],
                "checking that no servers are remaining in second group"
            );
 
-    is_deeply( [ sort $ccp->_get_available_servers( 'first' ) ],
+    eq_or_diff( [ sort $ccp->_get_available_servers( 'first' ) ],
                [ @hosts1 ],
                "Checking that all hosts in first group are now available for transfer"
            );
 
-    is_deeply( [ sort $ccp->_get_available_servers( 'second' ) ],
+    eq_or_diff( [ sort $ccp->_get_available_servers( 'second' ) ],
                [ @hosts2 ],
                "Checking that all hosts in second group are now available for transfer"
            );
