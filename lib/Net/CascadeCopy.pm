@@ -40,6 +40,9 @@ has children     => ( is => 'ro', isa => 'HashRef', default => sub { return {} }
 # for testing purposes
 has transfer_map => ( is => 'ro', isa => 'HashRef', default => sub { return {} } );
 
+# sort order
+has sort_order   => ( is => 'ro', isa => 'HashRef', default => sub { return {} } );
+
 sub add_group {
     my ( $self, $group, $servers_a ) = @_;
 
@@ -50,6 +53,10 @@ sub add_group {
     # initialize data structures
     for my $server ( @{ $servers_a } ) {
         $self->data->{remaining}->{ $group }->{$server} = 1;
+
+        unless ( defined $self->sort_order->{ $group }->{ $server } ) {
+            $self->sort_order->{ $group }->{ $server } = scalar keys %{ $self->sort_order->{ $group } };
+        }
     }
 
     # first server to transfer from is the current server
@@ -347,7 +354,7 @@ sub _get_available_servers {
     return unless $self->data->{available}->{ $group };
 
     my @available;
-    for my $host ( sort keys %{ $self->data->{available}->{ $group } } ) {
+    for my $host ( $self->_sort_servers( $group, keys %{ $self->data->{available}->{ $group } } ) ) {
         if ( $self->children->{$host} ) {
             next if $self->children->{$host} >= $self->max_forks;
         }
@@ -379,15 +386,22 @@ sub _get_remaining_servers {
 
     return unless $self->data->{remaining}->{ $group };
 
-    my @hosts = sort keys %{ $self->data->{remaining}->{ $group } };
+    my @hosts = $self->_sort_servers( $group, keys %{ $self->data->{remaining}->{ $group } } );
     return @hosts;
+}
+
+sub _sort_servers {
+    my ( $self, $group, @servers ) = @_;
+
+    # sort servers based on original insertion order
+    return sort { $self->sort_order->{$group}->{$a} <=> $self->sort_order->{$group}->{$b} } @servers;
 }
 
 sub _reserve_remaining_server {
     my ( $self, $group ) = @_;
 
     if ( $self->_get_remaining_servers( $group ) ) {
-        my $server = ( sort keys %{ $self->data->{remaining}->{ $group } } )[0];
+        my $server = ( $self->_sort_servers( $group, keys %{ $self->data->{remaining}->{ $group } } ) )[0];
         delete $self->data->{remaining}->{ $group }->{$server};
         $logger->debug( "Reserving ($group) $server" );
 
