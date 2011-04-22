@@ -2,7 +2,9 @@ package Net::CascadeCopy;
 use strict;
 use warnings;
 
-our $VERSION;
+# VERSION
+
+use Mouse;
 
 use Benchmark;
 use Log::Log4perl qw(:easy);
@@ -11,517 +13,458 @@ use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
 
 my $logger = get_logger( 'default' );
 
-# inside-out Perl class
-use Class::Std::Utils;
-{
-    # available/remaining/completed/failed servers and running processes
-    my %data_of;
+has data         => ( is => 'ro', isa => 'HashRef', default => sub { return {} } );
 
-    # keep track of total transfer time for each job to calculate savings
-    my %total_time_of;
+has total_time   => ( is => 'rw', isa => 'Num', default => 0 );
 
-    # ssh command used to log in to remote server in order to run command
-    my %ssh_of;
-    my %ssh_args_of;
+has ssh          => ( is => 'ro', isa => 'Str', default => "ssh"   );
+has ssh_args     => ( is => 'ro', isa => 'Str', default => "-x -A" );
 
-    # copy command
-    my %command_of;
-    my %command_args_of;
+has command      => ( is => 'ro', isa => 'Str', required => 1  );
+has command_args => ( is => 'ro', isa => 'Str', default  => "" );
 
-    # path to be copied
-    my %source_path_of;
-    my %target_path_of;
+has source_path  => ( is => 'ro', isa => 'Str', required => 1 );
+has target_path  => ( is => 'ro', isa => 'Str', required => 1 );
 
-    # options for output
-    my %output_of;
+has output       => ( is => 'ro', isa => 'Str', default => "" );
 
-    # maximum number of failures per server
-    my %max_failures_of;
+# maximum number of failures per server
+has max_failures => ( is => 'ro', isa => 'Num', default => 3 );
 
-    # maximum processes per remote server
-    my %max_forks_of;
+# maximum processes per remote server
+has max_forks    => ( is => 'ro', isa => 'Num', default => 2 );
 
-    # keep track of child processes
-    my %children_of;
+# keep track of child processes
+has children     => ( is => 'ro', isa => 'HashRef', default => sub { return {} } );
 
-    # for testing purposes
-    my %transfer_map_of;
+# for testing purposes
+has transfer_map => ( is => 'ro', isa => 'HashRef', default => sub { return {} } );
 
-    # Constructor takes path of file system root directory...
-    sub new {
-        my ($class, $arg_ref) = @_;
+sub add_group {
+    my ( $self, $group, $servers_a ) = @_;
 
-        # Bless a scalar to instantiate the new object...
-        my $new_object = bless \do{my $anon_scalar}, $class;
+    $logger->info( "Adding group: $group: ",
+                   join( ", ", @$servers_a ),
+               );
 
-        # Initialize the object's attributes...
-        $ssh_of{ident $new_object}          = $arg_ref->{ssh}          || "ssh";
-        $ssh_args_of{ident $new_object}     = $arg_ref->{ssh_args}     || "-x -A";
-        $max_failures_of{ident $new_object} = $arg_ref->{max_failures} || 3,
-        $max_forks_of{ident $new_object}    = $arg_ref->{max_forks}    || 2;
-        $output_of{ident $new_object}       = $arg_ref->{output}       || "";
-
-        return $new_object;
+    # initialize data structures
+    for my $server ( @{ $servers_a } ) {
+        $self->data->{remaining}->{ $group }->{$server} = 1;
     }
 
-    sub _get_data {
-        my ($self) = @_;
-        return $data_of{ident $self};
+    # first server to transfer from is the current server
+    $self->data->{available}->{ $group }->{localhost} = 1;
+
+    # initialize data structures
+    $self->data->{completed}->{ $group } = [];
+
+}
+
+sub transfer {
+    my ( $self ) = @_;
+
+    my $transfer_start = new Benchmark;
+
+  LOOP:
+    while ( 1 ) {
+        last LOOP unless $self->_transfer_loop( $transfer_start );
+        sleep 1;
     }
+}
 
-    sub set_command {
-        my ( $self, $command, $args ) = @_;
+sub _transfer_loop {
+    my ( $self, $transfer_start ) = @_;
 
-        $command_of{ident $self} = $command;
-        $command_args_of{ident $self} = $args || "";
+    $self->_check_for_completed_processes();
 
-        return 1;
-    }
+    # keep track if there are any remaining servers in any groups
+    my ( $remaining_flag, $available_flag );
 
-    sub set_source_path {
-        my ( $self, $path ) = @_;
-        $source_path_of{ident $self} = $path;
-    }
+    # handle completed processes
+    if ( ! scalar keys %{ $self->data->{remaining} } && ! $self->data->{running} ) {
+        my $transfer_end = new Benchmark;
+        my $transfer_diff = timediff( $transfer_end, $transfer_start );
+        my $transfer_time = $self->_human_friendly_time( $transfer_diff->[0] );
+        $logger->warn( "Job completed in $transfer_time" );
 
-    sub set_target_path {
-        my ( $self, $path ) = @_;
-        $target_path_of{ident $self} = $path;
-    }
+        my $total_time = $self->_human_friendly_time( $self->total_time );
+        $logger->info ( "Cumulative tansfer time of all jobs: $total_time" );
 
-    sub add_group {
-        my ( $self, $group, $servers_a ) = @_;
-
-        $logger->info( "Adding group: $group: ",
-                       join( ", ", @$servers_a ),
-                   );
-
-        # initialize data structures
-        for my $server ( @{ $servers_a } ) {
-            $data_of{ident $self}->{remaining}->{ $group }->{$server} = 1;
+        my $savings = $self->total_time - $transfer_diff->[0];
+        if ( $savings ) {
+            $savings = $self->_human_friendly_time( $savings );
+            $logger->info( "Approximate Time Saved: $savings" );
         }
-
-        # first server to transfer from is the current server
-        $data_of{ident $self}->{available}->{ $group }->{localhost} = 1;
-
-        # initialize data structures
-        $data_of{ident $self}->{completed}->{ $group } = [];
-
+        $logger->warn( "Completed successfully" );
+        return;
     }
 
-    sub transfer {
-        my ( $self ) = @_;
+    # start new transfers to remaining servers
+    for ( 0, 1 ) {
+        # code_smell: start 2 transfers each round to keep the
+        # test cases from breaking.  need to refactor test cases!
+        for my $group ( $self->_get_remaining_groups() ) {
+            # group contains servers that still need to be tranferred
 
-        unless ( $command_of{ident $self} ) {
-            die "ERROR: no transfer command has been set, try set_command()";
-        }
-
-        unless ( $source_path_of{ident $self} ) {
-            die "ERROR: no source path has been set!";
-        }
-
-        unless ( $target_path_of{ident $self} ) {
-            die "ERROR: no target path has been set!";
-        }
-
-        my $transfer_start = new Benchmark;
-
-      LOOP:
-        while ( 1 ) {
-            last LOOP unless $self->_transfer_loop( $transfer_start );
-            sleep 1;
-        }
-    }
-
-    sub _transfer_loop {
-        my ( $self, $transfer_start ) = @_;
-
-        $self->_check_for_completed_processes();
-
-        # keep track if there are any remaining servers in any groups
-        my ( $remaining_flag, $available_flag );
-
-        # handle completed processes
-        if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
-            my $transfer_end = new Benchmark;
-            my $transfer_diff = timediff( $transfer_end, $transfer_start );
-            my $transfer_time = $self->_human_friendly_time( $transfer_diff->[0] );
-            $logger->warn( "Job completed in $transfer_time" );
-
-            my $total_time = $self->_human_friendly_time( $total_time_of{ident $self} );
-            $logger->info ( "Cumulative tansfer time of all jobs: $total_time" );
-
-            my $savings = $total_time_of{ident $self} - $transfer_diff->[0];
-            if ( $savings ) {
-                $savings = $self->_human_friendly_time( $savings );
-                $logger->info( "Approximate Time Saved: $savings" );
-            }
-            $logger->warn( "Completed successfully" );
-            return;
-        }
-
-        # start new transfers to remaining servers
-        for ( 0, 1 ) {
-            # code_smell: start 2 transfers each round to keep the
-            # test cases from breaking.  need to refactor test cases!
-            for my $group ( $self->_get_remaining_groups() ) {
-                # group contains servers that still need to be tranferred
-
-                if ( $self->_get_available_servers( $group )  ) {
-                    # reserve a server to start a new transfer from
-                    my $source = $self->_reserve_available_server( $group );
-                    my $target = $self->_reserve_remaining_server( $group );
-                    $self->_start_process( $group, $source, $target );
-                }
+            if ( $self->_get_available_servers( $group )  ) {
+                # reserve a server to start a new transfer from
+                my $source = $self->_reserve_available_server( $group );
+                my $target = $self->_reserve_remaining_server( $group );
+                $self->_start_process( $group, $source, $target );
             }
         }
-
-        return 1;
     }
 
-    sub _human_friendly_time {
-        my ( $self, $seconds ) = @_;
+    return 1;
+}
 
-        return "0 secs" unless $seconds;
+sub _human_friendly_time {
+    my ( $self, $seconds ) = @_;
 
-        my @time_string;
+    return "0 secs" unless $seconds;
 
-        if ( $seconds > 3600 ) {
-            my $hours = int( $seconds / 3600 );
-            $seconds = $seconds % 3600;
-            push @time_string, "$hours hrs";
-        }
-        if ( $seconds > 60 ) {
-            my $minutes = int( $seconds / 60 );
-            $seconds = $seconds % 60;
-            push @time_string, "$minutes mins";
-        }
-        if ( $seconds ) {
-            push @time_string, "$seconds secs";
-        }
+    my @time_string;
 
-        return join " ", @time_string;
+    if ( $seconds > 3600 ) {
+        my $hours = int( $seconds / 3600 );
+        $seconds = $seconds % 3600;
+        push @time_string, "$hours hrs";
+    }
+    if ( $seconds > 60 ) {
+        my $minutes = int( $seconds / 60 );
+        $seconds = $seconds % 60;
+        push @time_string, "$minutes mins";
+    }
+    if ( $seconds ) {
+        push @time_string, "$seconds secs";
     }
 
-    sub _print_status {
-        my ( $self, $group ) = @_;
+    return join " ", @time_string;
+}
 
-        # completed procs
-        my $completed = 0;
-        if ( $data_of{ident $self}->{completed}->{ $group } ) {
-            $completed = scalar @{ $data_of{ident $self}->{completed}->{ $group } };
-        }
+sub _print_status {
+    my ( $self, $group ) = @_;
 
-        # running procs
-        my $running = 0;
-        if ( $data_of{ident $self}->{running} ) {
-            for my $pid ( keys %{ $data_of{ident $self}->{running} } ) {
-                if ( $data_of{ident $self}->{running}->{ $pid }->{group} eq $group ) {
-                    $running++;
-                }
-            }
-        }
-
-        # unstarted
-        my $unstarted = 0;
-        if ( $data_of{ident $self}->{remaining}->{ $group } ) {
-            $unstarted = scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } };
-        }
-
-        # failed
-        my $errors = 0;
-        my $failures = 0;
-        if ( $data_of{ident $self}->{failed} && $data_of{ident $self}->{failed}->{ $group } ) {
-            for my $server ( keys %{ $data_of{ident $self}->{failed}->{ $group }} ) {
-                $errors += $data_of{ident $self}->{failed}->{ $group }->{ $server };
-                if ( $data_of{ident $self}->{failed}->{ $group }->{ $server } >= $max_failures_of{ident $self} ) {
-                    $failures++;
-                }
-            }
-        }
-
-        $logger->info( "\U$group: ",
-                       "completed:$completed ",
-                       "running:$running ",
-                       "left:$unstarted ",
-                       "errors:$errors ",
-                       "failures:$failures ",
-                   );
+    # completed procs
+    my $completed = 0;
+    if ( $self->data->{completed}->{ $group } ) {
+        $completed = scalar @{ $self->data->{completed}->{ $group } };
     }
 
-    sub _start_process {
-        my ( $self, $group, $source, $target ) = @_;
-
-        $transfer_map_of{ident $self}->{$source}->{$target}++;
-
-        my $f=fork;
-        if (defined ($f) and $f==0) {
-
-            my $command;
-            if ( $source eq "localhost" ) {
-                $command = join " ", $command_of{ident $self},
-                                     $command_args_of{ident $self},
-                                     $source_path_of{ident $self},
-                                     "$target:$target_path_of{ident $self}";
+    # running procs
+    my $running = 0;
+    if ( $self->data->{running} ) {
+        for my $pid ( keys %{ $self->data->{running} } ) {
+            if ( $self->data->{running}->{ $pid }->{group} eq $group ) {
+                $running++;
             }
-            else {
-                $command = join " ", $ssh_of{ident $self},
-                                     $ssh_args_of{ident $self},
-                                     $source,
-                                     $command_of{ident $self},
-                                     $command_args_of{ident $self},
-                                     $target_path_of{ident $self},
-                                     "$target:$target_path_of{ident $self}";
+        }
+    }
+
+    # unstarted
+    my $unstarted = 0;
+    if ( $self->data->{remaining}->{ $group } ) {
+        $unstarted = scalar keys %{ $self->data->{remaining}->{ $group } };
+    }
+
+    # failed
+    my $errors = 0;
+    my $failures = 0;
+    if ( $self->data->{failed} && $self->data->{failed}->{ $group } ) {
+        for my $server ( keys %{ $self->data->{failed}->{ $group }} ) {
+            $errors += $self->data->{failed}->{ $group }->{ $server };
+            if ( $self->data->{failed}->{ $group }->{ $server } >= $self->max_failures ) {
+                $failures++;
             }
+        }
+    }
 
-            print "COMMAND: $command\n";
+    $logger->info( "\U$group: ",
+                   "completed:$completed ",
+                   "running:$running ",
+                   "left:$unstarted ",
+                   "errors:$errors ",
+                   "failures:$failures ",
+               );
+}
 
-            my $output = $output_of{ident $self} || "";
-            if ( $output eq "stdout" ) {
-                # don't modify command
-            } elsif ( $output eq "log" ) {
-                # redirect all child output to log
-                $command = "$command >> ccp.$source.$target.log 2>&1"
-            } else {
-                # default is to redirectout stdout to /dev/null
-                $command = "$command >/dev/null"
-            }
+sub _start_process {
+    my ( $self, $group, $source, $target ) = @_;
 
-            $logger->info( "Starting: ($group) $source => $target" );
-            $logger->debug( "Starting new child: $command" );
+    $self->transfer_map->{$source}->{$target} += 1;
 
-            system( $command );
+    my $f=fork;
+    if (defined ($f) and $f==0) {
 
-            if ($? == -1) {
-                $logger->logconfess( "failed to execute: $!" );
-            } elsif ($? & 127) {
-                $logger->logconfess( sprintf "child died with signal %d, %s coredump",
-                                     ($? & 127),  ($? & 128) ? 'with' : 'without'
-                                 );
-            } else {
-                my $exit_status = $? >> 8;
-                if ( $exit_status ) {
-                    $logger->error( "child exit status: $exit_status" );
-                }
-                exit $exit_status;
-            }
+        my $target_path = $self->target_path;
+
+        my $command;
+        if ( $source eq "localhost" ) {
+            $command = join( " ",
+                             $self->command,
+                             $self->command_args,
+                             $self->source_path,
+                             "$target:$target_path"
+                         );
         } else {
-            my $start = new Benchmark;
-            $data_of{ident $self}->{running}->{ $f } = { group  => $group,
-                                                         source => $source,
-                                                         target => $target,
-                                                         start  => $start,
-                                                     };
-        }
-    }
-
-    sub _check_for_completed_processes {
-        my ( $self ) = @_;
-
-        return unless $data_of{ident $self}->{running};
-
-        # find any processes that ended and reschedule the source and
-        # target servers in the available pool
-        for my $pid ( keys %{ $data_of{ident $self}->{running} } ) {
-            if ( waitpid( $pid, WNOHANG) ) {
-
-                # check the exit status of the command.
-                if ( $? ) {
-                    $self->_failed_process( $pid );
-                } else {
-                    $self->_succeeded_process( $pid );
-                }
-            }
+            $command = join( " ",
+                             $self->ssh,
+                             $self->ssh_args,
+                             $source,
+                             $self->command,
+                             $self->command_args,
+                             $self->target_path,
+                             "$target:$target_path"
+                         );
         }
 
-        unless ( keys %{ $data_of{ident $self}->{running} } ) {
-            delete $data_of{ident $self}->{running};
-        }
-    }
+        print "COMMAND: $command\n";
 
-    sub _succeeded_process {
-        my ( $self, $pid ) = @_;
-
-        my $group  = $data_of{ident $self}->{running}->{ $pid }->{group};
-        my $source = $data_of{ident $self}->{running}->{ $pid }->{source};
-        my $target = $data_of{ident $self}->{running}->{ $pid }->{target};
-        my $start  = $data_of{ident $self}->{running}->{ $pid }->{start};
-
-        # calculate time for this transfer
-        my $end = new Benchmark;
-        my $diff = timediff( $end, $start );
-        # keep track of transfer time totals
-        $total_time_of{ident $self} += $diff->[0];
-
-        my $time = $self->_human_friendly_time( $diff->[0] );
-        $logger->warn( "Succeeded: ($group) $source => $target ($time)" );
-
-        $self->_mark_available( $group, $source );
-        $self->_mark_completed( $group, $target );
-        $self->_mark_available( $group, $target );
-
-        delete $data_of{ident $self}->{running}->{ $pid };
-
-        $self->_print_status( $group );
-    }
-
-
-    sub _failed_process {
-        my ( $self, $pid ) = @_;
-
-        my $group  = $data_of{ident $self}->{running}->{ $pid }->{group};
-        my $source = $data_of{ident $self}->{running}->{ $pid }->{source};
-        my $target = $data_of{ident $self}->{running}->{ $pid }->{target};
-        my $start  = $data_of{ident $self}->{running}->{ $pid }->{start};
-
-        # calculate time for this transfer
-        my $end = new Benchmark;
-        my $diff = timediff( $end, $start );
-        # keep track of transfer time totals
-        $total_time_of{ident $self} += $diff->[0];
-
-        $logger->warn( "Failed: ($group) $source => $target ($diff->[0] seconds)" );
-
-        # there was an error during the transfer, reschedule
-        # it at the end of the list
-        $self->_mark_available( $group, $source );
-        my $fail_count = $self->_mark_failed( $group, $target );
-        if ( $fail_count >= $max_failures_of{ident $self} ) {
-            $logger->fatal( "Error: giving up on ($group) $target" );
+        my $output = $self->output || "";
+        if ( $output eq "stdout" ) {
+            # don't modify command
+        } elsif ( $output eq "log" ) {
+            # redirect all child output to log
+            $command = "$command >> ccp.$source.$target.log 2>&1"
         } else {
-            $self->_mark_remaining( $group, $target );
+            # default is to redirectout stdout to /dev/null
+            $command = "$command >/dev/null"
         }
 
-        delete $data_of{ident $self}->{running}->{ $pid };
+        $logger->info( "Starting: ($group) $source => $target" );
+        $logger->debug( "Starting new child: $command" );
 
-        $self->_print_status( $group );
-    }
+        system( $command );
 
-    sub _get_available_servers {
-        my ( $self, $group ) = @_;
-        return unless $data_of{ident $self}->{available};
-        return unless $data_of{ident $self}->{available}->{ $group };
-
-        my @available;
-        for my $host ( sort keys %{ $data_of{ident $self}->{available}->{ $group } } ) {
-            if ( $children_of{ident $self}->{$host} ) {
-                next if $children_of{ident $self}->{$host} >= $max_forks_of{ident $self};
+        if ($? == -1) {
+            $logger->logconfess( "failed to execute: $!" );
+        } elsif ($? & 127) {
+            $logger->logconfess( sprintf "child died with signal %d, %s coredump",
+                                 ($? & 127),  ($? & 128) ? 'with' : 'without'
+                             );
+        } else {
+            my $exit_status = $? >> 8;
+            if ( $exit_status ) {
+                $logger->error( "child exit status: $exit_status" );
             }
-            push @available, $host;
+            exit $exit_status;
         }
+    } else {
+        my $start = new Benchmark;
+        $self->data->{running}->{ $f } = { group  => $group,
+                                           source => $source,
+                                           target => $target,
+                                           start  => $start,
+                                       };
+    }
+}
 
-        return @available;
+sub _check_for_completed_processes {
+    my ( $self ) = @_;
+
+    return unless $self->data->{running};
+
+    # find any processes that ended and reschedule the source and
+    # target servers in the available pool
+    for my $pid ( keys %{ $self->data->{running} } ) {
+        if ( waitpid( $pid, WNOHANG) ) {
+
+            # check the exit status of the command.
+            if ( $? ) {
+                $self->_failed_process( $pid );
+            } else {
+                $self->_succeeded_process( $pid );
+            }
+        }
     }
 
-    sub _reserve_available_server {
-        my ( $self, $group ) = @_;
+    unless ( keys %{ $self->data->{running} } ) {
+        delete $self->data->{running};
+    }
+}
 
-        my ( $server ) = $self->_get_available_servers( $group );
+sub _succeeded_process {
+    my ( $self, $pid ) = @_;
+
+    my $group  = $self->data->{running}->{ $pid }->{group};
+    my $source = $self->data->{running}->{ $pid }->{source};
+    my $target = $self->data->{running}->{ $pid }->{target};
+    my $start  = $self->data->{running}->{ $pid }->{start};
+
+    # calculate time for this transfer
+    my $end = new Benchmark;
+    my $diff = timediff( $end, $start );
+
+    # keep track of transfer time totals
+    $self->total_time( $self->total_time + $diff->[0] );
+
+    my $time = $self->_human_friendly_time( $diff->[0] );
+    $logger->warn( "Succeeded: ($group) $source => $target ($time)" );
+
+    $self->_mark_available( $group, $source );
+    $self->_mark_completed( $group, $target );
+    $self->_mark_available( $group, $target );
+
+    delete $self->data->{running}->{ $pid };
+
+    $self->_print_status( $group );
+}
+
+sub _failed_process {
+    my ( $self, $pid ) = @_;
+
+    my $group  = $self->data->{running}->{ $pid }->{group};
+    my $source = $self->data->{running}->{ $pid }->{source};
+    my $target = $self->data->{running}->{ $pid }->{target};
+    my $start  = $self->data->{running}->{ $pid }->{start};
+
+    # calculate time for this transfer
+    my $end = new Benchmark;
+    my $diff = timediff( $end, $start );
+    # keep track of transfer time totals
+    $self->total_time( $self->total_time + $diff->[0] );
+
+    $logger->warn( "Failed: ($group) $source => $target ($diff->[0] seconds)" );
+
+    # there was an error during the transfer, reschedule
+    # it at the end of the list
+    $self->_mark_available( $group, $source );
+    my $fail_count = $self->_mark_failed( $group, $target );
+    if ( $fail_count >= $self->max_failures ) {
+        $logger->fatal( "Error: giving up on ($group) $target" );
+    } else {
+        $self->_mark_remaining( $group, $target );
+    }
+
+    delete $self->data->{running}->{ $pid };
+
+    $self->_print_status( $group );
+}
+
+sub _get_available_servers {
+    my ( $self, $group ) = @_;
+    return unless $self->data->{available};
+    return unless $self->data->{available}->{ $group };
+
+    my @available;
+    for my $host ( sort keys %{ $self->data->{available}->{ $group } } ) {
+        if ( $self->children->{$host} ) {
+            next if $self->children->{$host} >= $self->max_forks;
+        }
+        push @available, $host;
+    }
+
+    return @available;
+}
+
+sub _reserve_available_server {
+    my ( $self, $group ) = @_;
+
+    my ( $server ) = $self->_get_available_servers( $group );
+    $logger->debug( "Reserving ($group) $server" );
+
+    # only one transfer from localhost to each dc
+    if ( $server eq "localhost" ) {
+        delete $self->data->{available}->{$group}->{localhost};
+    }
+
+    $self->children->{ $server }++;
+    return $server;
+}
+
+sub _get_remaining_servers {
+    my ( $self, $group ) = @_;
+
+    return unless $self->data->{remaining};
+
+    return unless $self->data->{remaining}->{ $group };
+
+    my @hosts = sort keys %{ $self->data->{remaining}->{ $group } };
+    return @hosts;
+}
+
+sub _reserve_remaining_server {
+    my ( $self, $group ) = @_;
+
+    if ( $self->_get_remaining_servers( $group ) ) {
+        my $server = ( sort keys %{ $self->data->{remaining}->{ $group } } )[0];
+        delete $self->data->{remaining}->{ $group }->{$server};
         $logger->debug( "Reserving ($group) $server" );
 
-        # only one transfer from localhost to each dc
-        if ( $server eq "localhost" ) {
-            delete $data_of{ident $self}->{available}->{$group}->{localhost};
+        # delete remaining data structure as groups are completed
+        unless ( scalar keys %{ $self->data->{remaining}->{ $group } } ) {
+            $logger->debug( "Group empty: $group" );
+            delete $self->data->{remaining}->{ $group };
+            unless ( scalar ( keys %{ $self->data->{remaining} } ) ) {
+                $logger->debug( "No servers remaining" );
+                delete $self->data->{remaining};
+            }
         }
-
-        $children_of{ident $self}->{ $server }++;
         return $server;
     }
+}
 
-    sub _get_remaining_servers {
-        my ( $self, $group ) = @_;
+sub _get_remaining_groups {
+    my ( $self ) = @_;
+    return unless $self->data->{remaining};
+    my @keys = sort keys %{ $self->data->{remaining} };
+    return unless scalar @keys;
+    return @keys;
+}
 
-        return unless $data_of{ident $self}->{remaining};
+sub _mark_available {
+    my ( $self, $group, $server ) = @_;
 
-        return unless $data_of{ident $self}->{remaining}->{ $group };
+    # only the initial transfer to each dc comes from localhost.  iff
+    # first transfer (from localhost) succeeded, then don't reschedule
+    # for future syncs
+    if ( $server eq "localhost" ) {
 
-        my @hosts = sort keys %{ $data_of{ident $self}->{remaining}->{ $group } };
-        return @hosts;
-    }
+        if ( $self->data->{completed}->{ $group } ) {
 
-    sub _reserve_remaining_server {
-        my ( $self, $group ) = @_;
-
-        if ( $self->_get_remaining_servers( $group ) ) {
-            my $server = ( sort keys %{ $data_of{ident $self}->{remaining}->{ $group } } )[0];
-            delete $data_of{ident $self}->{remaining}->{ $group }->{$server};
-            $logger->debug( "Reserving ($group) $server" );
-
-            # delete remaining data structure as groups are completed
-            unless ( scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } } ) {
-                $logger->debug( "Group empty: $group" );
-                delete $data_of{ident $self}->{remaining}->{ $group };
-                unless ( scalar ( keys %{ $data_of{ident $self}->{remaining} } ) ) {
-                    $logger->debug( "No servers remaining" );
-                    delete $data_of{ident $self}->{remaining};
-                }
-            }
-            return $server;
+            delete $self->data->{available}->{ $group }->{$server};
+            return;
         }
     }
 
-    sub _get_remaining_groups {
-        my ( $self ) = @_;
-        return unless $data_of{ident $self}->{remaining};
-        my @keys = sort keys %{ $data_of{ident $self}->{remaining} };
-        return unless scalar @keys;
-        return @keys;
+    $logger->debug( "Server available: ($group) $server" );
+    $self->data->{available}->{ $group }->{$server} = 1;
+
+    # reduce count of number of active processes on this server
+    if ( $self->children->{$server} ) {
+        $self->children->{$server}--;
     }
+}
 
-    sub _mark_available {
-        my ( $self, $group, $server ) = @_;
+sub _mark_remaining {
+    my ( $self, $group, $server ) = @_;
 
-        # only the initial transfer to each dc comes from localhost.  iff
-        # first transfer (from localhost) succeeded, then don't reschedule
-        # for future syncs
-        if ( $server eq "localhost" ) {
+    $logger->debug( "Server remaining: ($group) $server" );
+    $self->data->{remaining}->{ $group }->{$server} = 1;
+}
 
-            if ( $data_of{ident $self}->{completed}->{ $group } ) {
+sub _mark_completed {
+    my ( $self, $group, $server ) = @_;
 
-                delete $data_of{ident $self}->{available}->{ $group }->{$server};
-                return;
-            }
-        }
+    $logger->debug( "Server completed: ($group) $server" );
+    push @{ $self->data->{completed}->{ $group } }, $server;
+}
 
-        $logger->debug( "Server available: ($group) $server" );
-        $data_of{ident $self}->{available}->{ $group }->{$server} = 1;
+sub _mark_failed {
+    my ( $self, $group, $server ) = @_;
 
-        # reduce count of number of active processes on this server
-        if ( $children_of{ident $self}->{$server} ) {
-            $children_of{ident $self}->{$server}--;
-        }
-    }
+    $logger->debug( "Server completed: ($group) $server" );
+    $self->data->{failed}->{ $group }->{ $server }++;
+    my $failures = $self->data->{failed}->{ $group }->{ $server };
+    $logger->debug( "$failures failures for ($group) $server" );
+    return $failures;
+}
 
-    sub _mark_remaining {
-        my ( $self, $group, $server ) = @_;
+# tracing all the attempted transfers
+sub get_transfer_map {
+    my ( $self ) = @_;
 
-        $logger->debug( "Server remaining: ($group) $server" );
-        $data_of{ident $self}->{remaining}->{ $group }->{$server} = 1;
-    }
-
-    sub _mark_completed {
-        my ( $self, $group, $server ) = @_;
-
-        $logger->debug( "Server completed: ($group) $server" );
-        push @{ $data_of{ident $self}->{completed}->{ $group } }, $server;
-    }
-
-    sub _mark_failed {
-        my ( $self, $group, $server ) = @_;
-
-        $logger->debug( "Server completed: ($group) $server" );
-        $data_of{ident $self}->{failed}->{ $group }->{ $server }++;
-        my $failures = $data_of{ident $self}->{failed}->{ $group }->{ $server };
-        $logger->debug( "$failures failures for ($group) $server" );
-        return $failures;
-    }
-
-    # tracing all the attempted transfers
-    sub get_transfer_map {
-        my ( $self ) = @_;
-
-        return $transfer_map_of{ident $self};
-    }
-    
+    return $self->transfer_map;
 }
 
 

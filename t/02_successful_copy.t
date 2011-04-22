@@ -1,5 +1,5 @@
 #!perl
-use Test::More tests => 29;
+use Test::More tests => 26;
 use Test::Differences;
 use strict;
 
@@ -12,20 +12,12 @@ use Net::CascadeCopy;
 my $transfer_start = new Benchmark;
 
 my $ccp;
-ok( $ccp = Net::CascadeCopy->new( { ssh => 'echo' } ),
+ok( $ccp = Net::CascadeCopy->new( { ssh         => 'echo',
+                                    command     => 'echo',
+                                    source_path => '/foo',
+                                    target_path => '/foo',
+                                } ),
     "Creating a new ccp object"
-);
-
-ok( $ccp->set_command( "echo" ),
-    "Setting the command to 'echo"
-);
-
-ok( $ccp->set_source_path( "/foo" ),
-    "Setting the source path"
-);
-
-ok( $ccp->set_target_path( "/foo" ),
-    "Setting the target path"
 );
 
 my @hosts1 = map { "host$_" } 101 .. 105;

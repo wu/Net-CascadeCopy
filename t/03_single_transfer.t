@@ -2,31 +2,19 @@
 use Test::More tests => 7;
 use strict;
 
-# use Log::Log4perl qw(:easy);
-
-# my $conf =<<END_LOG4PERLCONF;
-# # Screen output at INFO level
-# log4perl.rootLogger=DEBUG, SCREEN
-
-# # Info to screen and logfile
-# log4perl.appender.SCREEN.Threshold=INFO
-# log4perl.appender.SCREEN=Log::Log4perl::Appender::ScreenColoredLevels
-# log4perl.appender.SCREEN.layout=PatternLayout
-# log4perl.appender.SCREEN.layout.ConversionPattern=%d %m%n
-# log4perl.appender.SCREEN.stderr=0
-
-# END_LOG4PERLCONF
-
-# Log::Log4perl::init( \$conf );
+#use Log::Log4perl qw(:easy);
+#Log::Log4perl->easy_init($DEBUG);
+#my $logger = get_logger( 'default' );
 
 use Net::CascadeCopy;
 
 my $transfer_start = new Benchmark;
 
-my $ccp = Net::CascadeCopy->new( { ssh => 'echo' } );
-$ccp->set_command( "echo" );
-$ccp->set_source_path( "/foo" );
-$ccp->set_target_path( "/foo" );
+my $ccp = Net::CascadeCopy->new( { ssh         => 'echo',
+                                   command     => 'echo',
+                                   source_path => '/foo',
+                                   target_path => '/foo',
+                               } );
 
 ok( $ccp->add_group( "only", [ 'host1' ] ),
     "Adding a single host to a single group"

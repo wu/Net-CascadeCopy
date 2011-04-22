@@ -1,30 +1,20 @@
 #!perl
 use strict;
 
-use Net::CascadeCopy;
-use Test::More tests => 7;
-use Test::Differences;
-
 #use Log::Log4perl qw(:easy);
 #Log::Log4perl->easy_init($DEBUG);
 #my $logger = get_logger( 'default' );
 
-my $ccp;
-ok( $ccp = Net::CascadeCopy->new( { ssh => 'sleep 5; echo' } ),
-    "Creating a new ccp object"
-);
+use Net::CascadeCopy;
+use Test::More tests => 3;
+use Test::Differences;
 
-ok( $ccp->set_command( "sleep 3; echo" ),
-    "Setting the command to 'echo"
-);
+my $ccp = Net::CascadeCopy->new( { ssh         => 'sleep 5; echo',
+                                   command     => 'sleep 3; echo',
+                                   source_path => '/foo',
+                                   target_path => '/foo',
+                               } );
 
-ok( $ccp->set_source_path( "/foo" ),
-    "Setting the source path"
-);
-
-ok( $ccp->set_target_path( "/foo" ),
-    "Setting the target path"
-);
 
 my @hosts1 = map { "host$_" } 101 .. 110;
 ok( $ccp->add_group( "first", [ @hosts1 ] ),

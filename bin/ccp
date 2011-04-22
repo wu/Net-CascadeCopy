@@ -1,6 +1,8 @@
 #!/usr/bin/perl -w
 use strict;
 
+# VERSION
+
 use Data::Dumper;
 use Getopt::Long qw[ :config gnu_getopt ];
 use Log::Log4perl qw(:easy);
@@ -75,50 +77,59 @@ my $logger = get_logger( 'default' );
 #_* Main
 #
 
-my $output;
+my $options;
+
 if ( $opt_stdout ) {
-    $output = "stdout";
+    $options->{output} = "stdout";
 }
 elsif ( $opt_log ) {
-    $output = "log";
+    $options->{output} = "log";
 }
-
-my $ccp = Net::CascadeCopy->new( { ssh          => $opt_ssh      || "ssh",
-                                   ssh_flags    => $opt_sshargs  || "-x -A",
-                                   max_failures => $opt_failures || 3,
-                                   max_forks    => $opt_forks    || 2,
-                                   output       => $output,
-                               } );
 
 # determine command and arguments
-my ( $command, $args );
 if ( $opt_command ) {
-    $ccp->set_command( $opt_command, $opt_args );
+    $options->{command}      = $opt_command;
 }
 elsif ( $opt_scp ) {
-    $ccp->set_command( "scp", "-p" );
+    $options->{command}      = "scp";
+    $options->{command_args} = "-p";
 }
 elsif ( $opt_rsync ) {
-    $ccp->set_command( "rsync", "-ravu" );
+    $options->{command}      = "rsync";
+    $options->{command_args} = "-ravu";
 }
 else {
     die "Nothing to do!  No command, scp, or rsync options specified\n";
 }
 
-# path
+if ( $opt_args ) {
+    $options->{command_args} = $opt_args;
+}
+
+
+# source path
 unless ( $opt_path ) {
     die "Error: source path not specified";
 }
 unless ( -r $opt_path ) {
     die "Error: source path not found: $opt_path";
 }
-$ccp->set_source_path( $opt_path );
+$options->{source_path} = $opt_path;
+
+# target path
 if ( $opt_target_path ) {
-    $ccp->set_target_path( $opt_target_path );
+    $options->{target_path} = $opt_target_path;
 }
 else {
-    $ccp->set_target_path( $opt_path );
+    $options->{target_path} = $opt_path;
 }
+
+if ( $opt_ssh      ) { $options->{ssh}       = $opt_ssh         }
+if ( $opt_sshargs  ) { $options->{ssh_flags} = $opt_sshargs     }
+if ( $opt_failures ) { $options->{max_failures} = $opt_failures }
+if ( $opt_forks    ) { $options->{max_forks}    = $opt_forks    }
+
+my $ccp = Net::CascadeCopy->new( $options );
 
 unless ( scalar @opt_group ) {
     die "Error: no server groups specified\n";
