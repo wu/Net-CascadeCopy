@@ -394,7 +394,9 @@ sub _sort_servers {
     my ( $self, $group, @servers ) = @_;
 
     # sort servers based on original insertion order
-    return sort { $self->sort_order->{$group}->{$a} <=> $self->sort_order->{$group}->{$b} } @servers;
+    @servers = sort { $self->sort_order->{$group}->{$a} <=> $self->sort_order->{$group}->{$b} } @servers;
+
+    return @servers;
 }
 
 sub _reserve_remaining_server {
