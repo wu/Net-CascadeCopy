@@ -1,5 +1,14 @@
 Revision changes for Net::CascadeCopy
 
+0.2.5
+
+  - use Mouse instead of inside-out objects
+    - some setters changed to required constructor arguments
+
+  - preserve server insertion sort order
+
+  - update to use latest version of Dist::Zilla
+
 0.2.4
 
   - resolve a bug where source server is reused too many times
