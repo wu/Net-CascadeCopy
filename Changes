@@ -1,5 +1,11 @@
 Revision changes for Net::CascadeCopy
 
+0.2.6
+
+  - handle error condition where no available servers in group
+
+  - report number of failed processes on completion
+
 0.2.5
 
   - use Mouse instead of inside-out objects
