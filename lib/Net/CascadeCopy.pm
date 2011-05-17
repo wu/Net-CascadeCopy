@@ -67,6 +67,18 @@ sub add_group {
 
 }
 
+sub get_groups {
+    my ( $self ) = @_;
+
+    my @groups;
+
+    for my $group ( keys %{ $self->sort_order } ) {
+        push @groups, $group;
+    }
+
+    return @groups;
+}
+
 sub transfer {
     my ( $self ) = @_;
 
@@ -102,7 +114,19 @@ sub _transfer_loop {
             $savings = $self->_human_friendly_time( $savings );
             $logger->info( "Approximate Time Saved: $savings" );
         }
-        $logger->warn( "Completed successfully" );
+
+        my $failure_count;
+        for my $group ( $self->get_groups() ) {
+            my ( $errors, $failures ) = $self->_get_failed_count( $group );
+            $failure_count += $failures;
+        }
+
+        if ( $failure_count ) {
+            $logger->fatal( "$failure_count Fatal Errors" );
+        }
+        else {
+            $logger->warn( "Completed successfully" );
+        }
         return;
     }
 
@@ -175,16 +199,7 @@ sub _print_status {
     }
 
     # failed
-    my $errors = 0;
-    my $failures = 0;
-    if ( $self->data->{failed} && $self->data->{failed}->{ $group } ) {
-        for my $server ( keys %{ $self->data->{failed}->{ $group }} ) {
-            $errors += $self->data->{failed}->{ $group }->{ $server };
-            if ( $self->data->{failed}->{ $group }->{ $server } >= $self->max_failures ) {
-                $failures++;
-            }
-        }
-    }
+    my ( $errors, $failures ) = $self->_get_failed_count( $group );
 
     $logger->info( "\U$group: ",
                    "completed:$completed ",
@@ -337,7 +352,11 @@ sub _failed_process {
     # it at the end of the list
     $self->_mark_available( $group, $source );
     my $fail_count = $self->_mark_failed( $group, $target );
-    if ( $fail_count >= $self->max_failures ) {
+    if (  ! $self->_get_available_servers( $group ) ) {
+        $logger->fatal( "Error: no available servers in '$group' to handle $target" );
+        $self->_mark_failed( $group, $target, 1 );
+    }
+    elsif ( $fail_count >= $self->max_failures ) {
         $logger->fatal( "Error: giving up on ($group) $target" );
     } else {
         $self->_mark_remaining( $group, $target );
@@ -467,13 +486,38 @@ sub _mark_completed {
 }
 
 sub _mark_failed {
-    my ( $self, $group, $server ) = @_;
+    my ( $self, $group, $server, $fatal ) = @_;
 
-    $logger->debug( "Server completed: ($group) $server" );
-    $self->data->{failed}->{ $group }->{ $server }++;
+    $logger->debug( "Server failed: ($group) $server" );
+
+    if ( $fatal ) {
+        $self->data->{failed}->{ $group }->{ $server } = $self->max_failures;
+    }
+    else {
+        $self->data->{failed}->{ $group }->{ $server }++;
+    }
+
     my $failures = $self->data->{failed}->{ $group }->{ $server };
     $logger->debug( "$failures failures for ($group) $server" );
     return $failures;
+}
+
+sub _get_failed_count {
+    my ( $self, $group ) = @_;
+
+    my $errors = 0;
+    my $failures = 0;
+
+    if ( $self->data->{failed} && $self->data->{failed}->{ $group } ) {
+        for my $server ( keys %{ $self->data->{failed}->{ $group }} ) {
+            $errors += $self->data->{failed}->{ $group }->{ $server };
+            if ( $self->data->{failed}->{ $group }->{ $server } >= $self->max_failures ) {
+                $failures++;
+            }
+        }
+    }
+
+    return ( $errors, $failures );
 }
 
 # tracing all the attempted transfers
@@ -609,6 +653,11 @@ option is only intended for debugging.
 Add a group of servers.  Ideally all servers will be located in the
 same datacenter.  This may be called multiple times with different
 group names to create multiple groups.
+
+=item $self->get_groups()
+
+Get list of groups.  List is sorted by the order in which the groups
+were added.
 
 =item $self->set_command( $command, $args )
 
